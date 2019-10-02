@@ -4,16 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
-	"github.com/sirupsen/logrus"
+	"go-burp/internal/pkg/config"
 	"go-burp/internal/pkg/dumper"
+	"go-burp/internal/pkg/request"
 	"io"
+	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 )
-
-type Config struct {
-	Port int
-}
 
 func copyHeader(dst, src http.Header) {
 	for k, vv := range src {
@@ -24,17 +24,18 @@ func copyHeader(dst, src http.Header) {
 }
 
 type Proxy struct {
-	Config *Config
+	Config   *config.Config
+	EventBus chan request.Message
 
 	Server *http.Server
 	Client *http.Client
 
 	Dumper *dumper.Dumper
 
-	Log *logrus.Logger
+	Log *log.Logger
 }
 
-func NewProxy(config *Config) (p *Proxy) {
+func NewProxy(config *config.Config) (p *Proxy) {
 	p = &Proxy{Config: config}
 	p.Server = &http.Server{
 		Addr:    ":8080",
@@ -49,13 +50,13 @@ func NewProxy(config *Config) (p *Proxy) {
 		Timeout:       0,
 	}
 
-	p.Log = logrus.New()
-	p.Log.Out = os.Stdout
-	p.Log.Level = logrus.InfoLevel
+	writer, _ := os.OpenFile("go-burp.log", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
+	p.Log = log.New(writer, "[GO BURP]", log.LstdFlags)
 
 	p.Dumper = dumper.NewDumper(p.Log)
+	p.EventBus = make(chan request.Message, 128)
 
-	p.Log.Log(logrus.InfoLevel, "HELL`o WORLD")
+	p.Log.Println("Proxy inited successfully...")
 	return p
 }
 
@@ -66,7 +67,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 
-	r := bufio.NewReader(bytes.NewReader([]byte(dump)))
+	r := bufio.NewReader(bytes.NewReader([]byte(dump.Dump)))
 	newReq, err := http.ReadRequest(r)
 	newReq.RequestURI = ""
 	defer newReq.Body.Close()
@@ -81,4 +82,23 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, req *http.Request) {
 	copyHeader(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
+
+	builder := strings.Builder{}
+	builder.WriteString(strconv.FormatInt(dump.Id, 10))
+	builder.WriteString(dump.Host)
+
+	p.EventBus <- request.Message{
+		Request:  req,
+		Response: resp,
+		ListRepr: builder.String(),
+	}
+}
+
+func (p *Proxy) RepeatRequest(id int64) (resp *http.Response) {
+	req := p.Dumper.GetRequest(id)
+	resp, err := p.Client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	return resp
 }

@@ -1,10 +1,17 @@
 package main
 
 import (
-	"go-burp/internal/pkg/proxy"
+	ui "github.com/gizak/termui/v3"
+	service2 "go-burp/internal/app/service"
+	"log"
 )
 
 func main() {
-	service := proxy.NewProxy(nil)
-	panic(service.Server.ListenAndServe())
+	if err := ui.Init(); err != nil {
+		log.Fatalf("failed to initialize termui: %v", err)
+	}
+	defer ui.Close()
+
+	service := service2.NewService()
+	service.Run()
 }
