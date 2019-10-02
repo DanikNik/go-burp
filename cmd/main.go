@@ -4,8 +4,7 @@ import (
 	"go-burp/internal/pkg/proxy"
 )
 
-
-func main(){
+func main() {
 	service := proxy.NewProxy(nil)
-	_ = service.Server.ListenAndServe()
+	panic(service.Server.ListenAndServe())
 }

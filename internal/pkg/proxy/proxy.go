@@ -5,9 +5,10 @@ import (
 	"bytes"
 	"crypto/tls"
 	"github.com/sirupsen/logrus"
+	"go-burp/internal/pkg/dumper"
 	"io"
 	"net/http"
-	"net/http/httputil"
+	"os"
 )
 
 type Config struct {
@@ -28,6 +29,8 @@ type Proxy struct {
 	Server *http.Server
 	Client *http.Client
 
+	Dumper *dumper.Dumper
+
 	Log *logrus.Logger
 }
 
@@ -46,25 +49,30 @@ func NewProxy(config *Config) (p *Proxy) {
 		Timeout:       0,
 	}
 
-	p.Log = logrus.StandardLogger()
-	p.Log.Log(logrus.InfoLevel, "hello world")
+	p.Log = logrus.New()
+	p.Log.Out = os.Stdout
+	p.Log.Level = logrus.InfoLevel
+
+	p.Dumper = dumper.NewDumper(p.Log)
+
+	p.Log.Log(logrus.InfoLevel, "HELL`o WORLD")
 	return p
 }
 
 func (p *Proxy) handleHTTP(w http.ResponseWriter, req *http.Request) {
 	defer req.Body.Close()
-	dump, err := httputil.DumpRequest(req, true)
+	dump, err := p.Dumper.DumpRequest(req, true)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 
-	r := bufio.NewReader(bytes.NewReader(dump))
-	new_req, err := http.ReadRequest(r)
-	new_req.RequestURI = ""
-	defer new_req.Body.Close()
+	r := bufio.NewReader(bytes.NewReader([]byte(dump)))
+	newReq, err := http.ReadRequest(r)
+	newReq.RequestURI = ""
+	defer newReq.Body.Close()
 
-	resp, err := p.Client.Do(new_req)
-	defer new_req.Body.Close()
+	resp, err := p.Client.Do(newReq)
+	defer newReq.Body.Close()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
