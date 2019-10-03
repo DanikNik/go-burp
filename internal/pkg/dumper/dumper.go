@@ -67,15 +67,31 @@ func (d *Dumper) DumpRequest(req *http.Request, toDataBase bool) (msg request.Me
 		return msg, err
 	}
 
+	msg.Host = req.Host
+	msg.Request = req
+
 	if toDataBase {
-		_, _ = d.dbObj.Exec(`INSERT INTO requests (host, request_body) VALUES (?, ?)`, req.Host, string(dump))
+		_, _ = d.dbObj.Exec(`INSERT INTO requests (host, request_body) VALUES (?, ?)`, req.Host, dump)
 		row := d.dbObj.QueryRow(`SELECT id, request_body FROM requests WHERE id = (SELECT last_insert_rowid());`)
-		err := row.Scan(&msg.Id, &msg.Dump)
+		temp := ""
+		err := row.Scan(&msg.Id, &temp)
+		msg.RequestDump = []byte(dump)
 		if err != nil {
 			panic(err)
 		}
 	}
 
+	return msg, nil
+}
+
+func (d *Dumper) DumpResponse(resp *http.Response, toDataBase bool) (msg request.ResponseMessage, err error) {
+	dump, err := httputil.DumpResponse(resp, true)
+	msg = request.ResponseMessage{}
+	if err != nil {
+		return msg, err
+	}
+	msg.Response = resp
+	msg.Dump = dump
 	return msg, nil
 }
 

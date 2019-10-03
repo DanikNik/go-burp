@@ -67,31 +67,34 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 
-	r := bufio.NewReader(bytes.NewReader([]byte(dump.Dump)))
+	r := bufio.NewReader(bytes.NewReader(dump.RequestDump))
 	newReq, err := http.ReadRequest(r)
 	newReq.RequestURI = ""
 	defer newReq.Body.Close()
 
 	resp, err := p.Client.Do(newReq)
-	defer newReq.Body.Close()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
+
 	defer resp.Body.Close()
+	p.Log.Println(resp.Header["Content-Type"])
+	msg, err := p.Dumper.DumpResponse(resp, true)
+	dump.Response = msg.Response
+	dump.ResponseDump = msg.Dump
 	copyHeader(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
 
 	builder := strings.Builder{}
 	builder.WriteString(strconv.FormatInt(dump.Id, 10))
+	builder.WriteString(" | ")
 	builder.WriteString(dump.Host)
 
-	p.EventBus <- request.Message{
-		Request:  req,
-		Response: resp,
-		ListRepr: builder.String(),
-	}
+	dump.ListRepr = builder.String()
+
+	p.EventBus <- dump
 }
 
 func (p *Proxy) RepeatRequest(id int64) (resp *http.Response) {
